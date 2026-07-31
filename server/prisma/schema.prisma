@@ -1,0 +1,319 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [vector]
+}
+
+// ============================================
+// Authentication
+// ============================================
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  projects Project[]
+  reviews  Review[]
+
+  @@map("users")
+}
+
+// ============================================
+// Projects
+// ============================================
+
+model Project {
+  id               String        @id @default(uuid())
+  title            String
+  description      String        @default("")
+  status           ProjectStatus @default(CREATED)
+  researchQuestion String?       @map("research_question")
+  userId           String        @map("user_id")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents      Document[]
+  researchPlans  ResearchPlan[]
+  evidence       Evidence[]
+  researchBriefs ResearchBrief[]
+  workflowLogs   WorkflowLog[]
+
+  @@map("projects")
+}
+
+enum ProjectStatus {
+  CREATED
+  DOCUMENTS_UPLOADED
+  PLAN_GENERATED
+  PLAN_APPROVED
+  EVIDENCE_RETRIEVED
+  BRIEF_GENERATED
+  BRIEF_APPROVED
+  COMPLETED
+}
+
+// ============================================
+// Documents
+// ============================================
+
+model Document {
+  id           String         @id @default(uuid())
+  filename     String
+  originalName String         @map("original_name")
+  mimeType     String         @map("mime_type")
+  size         Int
+  pageCount    Int?           @map("page_count")
+  status       DocumentStatus @default(UPLOADED)
+  projectId    String         @map("project_id")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chunks  DocumentChunk[]
+
+  @@map("documents")
+}
+
+enum DocumentStatus {
+  UPLOADED
+  PROCESSING
+  CHUNKED
+  EMBEDDED
+  FAILED
+}
+
+model DocumentChunk {
+  id         String                       @id @default(uuid())
+  content    String
+  chunkIndex Int                          @map("chunk_index")
+  pageNumber Int?                         @map("page_number")
+  tokenCount Int?                         @map("token_count")
+  embedding  Unsupported("vector(1536)")?
+  documentId String                       @map("document_id")
+  createdAt  DateTime                     @default(now()) @map("created_at")
+
+  document Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  evidence Evidence[]
+
+  @@index([documentId])
+  @@map("document_chunks")
+}
+
+// ============================================
+// Research Plans
+// ============================================
+
+model ResearchPlan {
+  id        String     @id @default(uuid())
+  title     String
+  status    PlanStatus @default(DRAFT)
+  projectId String     @map("project_id")
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  project Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  steps   PlanStep[]
+
+  @@map("research_plans")
+}
+
+enum PlanStatus {
+  DRAFT
+  APPROVED
+  REJECTED
+}
+
+model PlanStep {
+  id          String     @id @default(uuid())
+  title       String
+  description String
+  orderIndex  Int        @map("order_index")
+  status      StepStatus @default(PENDING)
+  planId      String     @map("plan_id")
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  plan     ResearchPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  evidence Evidence[]
+
+  @@index([planId])
+  @@map("plan_steps")
+}
+
+enum StepStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+// ============================================
+// Evidence
+// ============================================
+
+model Evidence {
+  id              String                 @id @default(uuid())
+  content         String
+  classification  EvidenceClassification
+  relevanceScore  Float                  @map("relevance_score")
+  analysis        String                 @default("")
+  chunkId         String                 @map("chunk_id")
+  stepId          String                 @map("step_id")
+  projectId       String                 @map("project_id")
+  createdAt       DateTime               @default(now()) @map("created_at")
+
+  chunk          DocumentChunk   @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  step           PlanStep        @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  claimEvidence  ClaimEvidence[]
+
+  @@index([projectId])
+  @@index([stepId])
+  @@map("evidence")
+}
+
+enum EvidenceClassification {
+  SUPPORTING
+  CONFLICTING
+  INSUFFICIENT
+}
+
+// ============================================
+// Claims & Research Briefs
+// ============================================
+
+model Claim {
+  id        String      @id @default(uuid())
+  content   String
+  status    ClaimStatus @default(PENDING)
+  briefId   String      @map("brief_id")
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+
+  brief    ResearchBrief @relation(fields: [briefId], references: [id], onDelete: Cascade)
+  evidence ClaimEvidence[]
+
+  @@index([briefId])
+  @@map("claims")
+}
+
+enum ClaimStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EDITED
+}
+
+model ClaimEvidence {
+  id         String @id @default(uuid())
+  claimId    String @map("claim_id")
+  evidenceId String @map("evidence_id")
+
+  claim    Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  evidence Evidence @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+
+  @@unique([claimId, evidenceId])
+  @@map("claim_evidence")
+}
+
+model ResearchBrief {
+  id               String      @id @default(uuid())
+  title            String
+  executiveSummary String      @default("") @map("executive_summary")
+  methodology      String      @default("")
+  findings         String      @default("")
+  openQuestions    String      @default("") @map("open_questions")
+  references       String      @default("")
+  status           BriefStatus @default(DRAFT)
+  projectId        String      @map("project_id")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+
+  project  Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  claims   Claim[]
+  versions BriefVersion[]
+
+  @@map("research_briefs")
+}
+
+enum BriefStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  REJECTED
+}
+
+model BriefVersion {
+  id            String   @id @default(uuid())
+  versionNumber Int      @map("version_number")
+  content       String
+  changeLog     String   @default("") @map("change_log")
+  briefId       String   @map("brief_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  brief ResearchBrief @relation(fields: [briefId], references: [id], onDelete: Cascade)
+
+  @@index([briefId])
+  @@map("brief_versions")
+}
+
+// ============================================
+// Reviews
+// ============================================
+
+model Review {
+  id         String       @id @default(uuid())
+  action     ReviewAction
+  comment    String?
+  targetType String       @map("target_type")
+  targetId   String       @map("target_id")
+  userId     String       @map("user_id")
+  createdAt  DateTime     @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([targetType, targetId])
+  @@map("reviews")
+}
+
+enum ReviewAction {
+  APPROVE
+  REJECT
+  EDIT
+}
+
+// ============================================
+// Workflow Logs
+// ============================================
+
+model WorkflowLog {
+  id        String         @id @default(uuid())
+  stage     String
+  status    WorkflowStatus
+  duration  Int?
+  metadata  Json?
+  projectId String         @map("project_id")
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("workflow_logs")
+}
+
+enum WorkflowStatus {
+  STARTED
+  COMPLETED
+  FAILED
+}

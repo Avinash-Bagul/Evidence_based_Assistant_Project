@@ -1,0 +1,3 @@
+// Upload directory for development
+// This folder stores uploaded documents locally.
+// In production, replace with cloud storage (S3, GCS, etc.)
