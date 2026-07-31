@@ -264,6 +264,7 @@ model BriefVersion {
 
   brief ResearchBrief @relation(fields: [briefId], references: [id], onDelete: Cascade)
 
+  @@unique([briefId, versionNumber])
   @@index([briefId])
   @@map("brief_versions")
 }
